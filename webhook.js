@@ -897,13 +897,17 @@ async function processarDizimos(mensagem, igrejaId) {
           data: FieldValue.serverTimestamp(),
           descricao: `Dízimo: ${nomeFinalParaRegistro} ${valor.toFixed(2).replace(".", ",")} ${modoPagamento}`,
           identificador: transacaoRef.id,
-          membro: nomeFinalParaRegistro,
+          // Ajuste aqui: Salvar o nome do membro no campo esperado pelo dashboard
+          membroNome: nomeFinalParaRegistro, 
+          // Manter o campo membroId, pois ele é útil para referenciar o documento do membro
           membroId: membroIdParaRegistro, 
+          // Adicionar o campo formaPagamento esperado pelo dashboard
+          formaPagamento: modoPagamento, 
           pago: true,
           tipo: "entrada",
           valor,
         });
-        console.log(`[ProcessarDizimosDebug] Transação de Dízimo adicionada para '${nomeFinalParaRegistro}' em /igrejas/${igrejaId}/transacoes`);
+        console.log(`[ProcessarDizimosDebug] Transação de Dízimo adicionada para '${nomeFinalParaRegistro}' em /igrejas/${igrejaId}/transacoes com membroNome e formaPagamento corretos`);
         
         dizimosParaRetorno.push({
           nomeMembro: nomeFinalParaRegistro,
@@ -1147,60 +1151,73 @@ function classificarMensagemComLogs(mensagem) { // Forçando o redeploy
   }
 
   // --- Verificação Financeira ÚNICA ---
-  const palavrasEntrada = ["oferta", "entrada", "doação", "contribuição", "recebido", "recebi"];
-  const palavrasSaida = ["saida", "saída", "despesa", "pagamento", "paguei", "compra", "conta"];
-  const palavrasDizimoUnico = ["dízimo", "dizimo"]; // Renomeado para evitar confusão com a lista de múltiplos
+const palavrasEntrada = ["oferta", "entrada", "doação", "doacao", "contribuição", "contribuicao", "recebido", "recebi", "campanha"];
+const palavrasSaida = ["saida", "saída", "despesa", "pagamento", "paguei", "compra", "conta"];
+const palavrasDizimoUnico = ["dízimo", "dizimo"]; // Renomeado para evitar confusão com a lista de múltiplos
 
-  const regexValorSimples = /([0-9]+(?:[.,][0-9]{1,2})?)/;
-  const matchValor = msgOriginal.match(regexValorSimples);
-  const valorExtraido = matchValor ? parseFloat((matchValor[1] || "0").replace(",", ".")) : null;
+const regexValorSimples = /([0-9]+(?:[.,][0-9]{1,2})?)/;
+const matchValor = msgOriginal.match(regexValorSimples);
+const valorExtraido = matchValor ? parseFloat((matchValor[1] || "0").replace(",", ".")) : null;
 
-  let tipoTransacao = null;
-  let categoriaPrincipalRetorno = null;
-  let subCategoriaRetorno = null;
-  let categoriaLegadaRetorno = "Diversos";
+let tipoTransacao = null;
+let categoriaPrincipalRetorno = null;
+let subCategoriaRetorno = null;
+let categoriaLegadaRetorno = "Diversos";
 
-  if (palavrasEntrada.some(palavra => msgLower.includes(palavra))) {
-    tipoTransacao = "entrada";
-    if (palavrasDizimoUnico.some(palavra => msgLower.includes(palavra))) { 
-        categoriaPrincipalRetorno = "Entradas";
-        subCategoriaRetorno = "Dízimo";
-        categoriaLegadaRetorno = "Dízimo";
-    } else if (msgLower.includes("oferta")) {
-        categoriaPrincipalRetorno = "Entradas";
-        subCategoriaRetorno = "Oferta";
-        categoriaLegadaRetorno = "Oferta";
-    } else {
-        categoriaPrincipalRetorno = "Entradas";
-        subCategoriaRetorno = "Entrada Diversa";
-        categoriaLegadaRetorno = "Entrada Diversa";
-    }
-  } else if (palavrasSaida.some(palavra => msgLower.includes(palavra))) {
-    tipoTransacao = "saida";
-    const despesaCategorizada = encontrarCategoriaDespesaDetalhada(msgOriginal); 
-    categoriaPrincipalRetorno = despesaCategorizada.categoriaPrincipal;
-    subCategoriaRetorno = despesaCategorizada.subCategoria;
-    categoriaLegadaRetorno = despesaCategorizada.subCategoria;
-  } else if (palavrasDizimoUnico.some(palavra => msgLower.includes(palavra))) { 
-    tipoTransacao = "entrada";
+if (palavrasEntrada.some(palavra => msgLower.includes(palavra))) {
+  tipoTransacao = "entrada";
+
+  // As verificações específicas devem vir primeiro, da mais específica para a mais genérica
+  if (msgLower.includes("dízimo") || msgLower.includes("dizimo")) {
     categoriaPrincipalRetorno = "Entradas";
     subCategoriaRetorno = "Dízimo";
     categoriaLegadaRetorno = "Dízimo";
+  } else if (msgLower.includes("oferta")) {
+    categoriaPrincipalRetorno = "Entradas";
+    subCategoriaRetorno = "Oferta";
+    categoriaLegadaRetorno = "Oferta";
+  } else if (msgLower.includes("campanha")) {
+    categoriaPrincipalRetorno = "Entradas";
+    subCategoriaRetorno = "Campanha";
+    categoriaLegadaRetorno = "Campanha";
+  } else if (msgLower.includes("doação") || msgLower.includes("doacao")) {
+    categoriaPrincipalRetorno = "Entradas";
+    subCategoriaRetorno = "Doação";
+    categoriaLegadaRetorno = "Doação";
+  } else {
+    categoriaPrincipalRetorno = "Entradas";
+    subCategoriaRetorno = "Entrada Diversa";
+    categoriaLegadaRetorno = "Entrada Diversa";
   }
 
-  if (tipoTransacao && valorExtraido !== null) {
-    console.log(`classificarMensagem: Detectado padrão FINANCEIRO ÚNICO. Tipo: ${tipoTransacao}, Categoria Principal: ${categoriaPrincipalRetorno}, Subcategoria: ${subCategoriaRetorno}, Valor: ${valorExtraido}.`);
-    return {
-      tipo: "financeiro",
-      detalhes: {
-        tipo: tipoTransacao,
-        categoriaPrincipal: categoriaPrincipalRetorno,
-        subCategoria: subCategoriaRetorno,
-        categoria: categoriaLegadaRetorno,
-        valor: valorExtraido
-      }
-    };
-  }
+} else if (palavrasSaida.some(palavra => msgLower.includes(palavra))) {
+  tipoTransacao = "saida";
+
+  const despesaCategorizada = encontrarCategoriaDespesaDetalhada(msgOriginal);
+  categoriaPrincipalRetorno = despesaCategorizada.categoriaPrincipal;
+  subCategoriaRetorno = despesaCategorizada.subCategoria;
+  categoriaLegadaRetorno = despesaCategorizada.subCategoria;
+
+} else if (msgLower.includes("dízimo") || msgLower.includes("dizimo")) {
+  tipoTransacao = "entrada";
+  categoriaPrincipalRetorno = "Entradas";
+  subCategoriaRetorno = "Dízimo";
+  categoriaLegadaRetorno = "Dízimo";
+}
+
+if (tipoTransacao && valorExtraido !== null) {
+  console.log(`classificarMensagem: Detectado padrão FINANCEIRO ÚNICO. Tipo: ${tipoTransacao}, Categoria Principal: ${categoriaPrincipalRetorno}, Subcategoria: ${subCategoriaRetorno}, Valor: ${valorExtraido}.`);
+  return {
+    tipo: "financeiro",
+    detalhes: {
+      tipo: tipoTransacao,
+      categoriaPrincipal: categoriaPrincipalRetorno,
+      subCategoria: subCategoriaRetorno,
+      categoria: categoriaLegadaRetorno,
+      valor: valorExtraido
+    }
+  };
+}
 
   // --- Verificação de Cadastro ---
   const palavrasCadastro = ["cadastro", "cadastrar", "novo membro", "ficha", "inscrição"];
